@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<!--suppress ALL -->
+<html lang="en">
+<head>
+    <meta name="generator" content="Quarkdown">
+    <meta charset="UTF-8">
+    <meta name="author" content="Mounir Samite">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>report p2</title>
+    <script src="./script/quarkdown.js"></script>
+    <script>const capabilities = window.quarkdownCapabilities</script>
+    <script>window.PagedConfig = {auto: false};</script>
+    <script src="https://unpkg.com/pagedjs@0.4.3/dist/paged.polyfill.js"></script>
+    <link href='https://unpkg.com/boxicons@2.1.4/css/boxicons.min.css' rel='stylesheet'>
+    <link rel="stylesheet" href="./theme/theme.css">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script>capabilities.mermaid = true;</script>
+
+    <style>
+
+        body {
+        }
+
+        .page-break {
+            break-before: always;
+        }
+
+        .quarkdown-plain .page-break {
+            break-before: avoid;
+            break-after: avoid;
+        }
+
+        body.quarkdown-plain.quarkdown-plain {
+        }
+
+        body.quarkdown-slides.quarkdown-slides .reveal {
+            width: 210.0mm;
+            height: 297.0mm;
+        }
+
+        @page {
+            size: 210.0mm 297.0mm;
+        }
+
+        p {
+        }
+    </style>
+    <script>
+        const doc = new PagedDocument();
+        prepare(doc);
+    </script>
+</head>
+<body class="quarkdown quarkdown-paged">
+<div class="page-margin-content page-margin-bottom-center" data-on-left-page="bottom-center" data-on-right-page="bottom-center"><p><span class="current-page-number">-</span> / <span class="total-page-number">-</span></p></div><div class="container fullwidth" style="justify-items: center; text-align: center;"><h1 id="report-p2" data-decorative="">report p2</h1><p>Mounir Samite 2026</p></div><hr /><div class="page-break" data-hidden=""></div><h1 id="table-of-contents">Table of Contents</h1><nav data-role="table-of-contents"><ol><li data-location="1"><a href="#problem-analysis">Problem analysis</a><ol><li data-location="1.1"><a href="#state-consistency-and-determinism">State consistency and determinism</a></li><li data-location="1.2"><a href="#message-ordering">Message ordering</a></li><li data-location="1.3"><a href="#dynamic-peer-discovery">Dynamic peer discovery</a></li><li data-location="1.4"><a href="#cursor-awareness">Cursor awareness</a></li></ol></li><li data-location="2"><a href="#mom-approach">MOM approach</a><ol><li data-location="2.1"><a href="#architecture">Architecture</a></li><li data-location="2.2"><a href="#state-management">State management</a></li><li data-location="2.3"><a href="#consistency-and-ordering">Consistency and ordering</a></li></ol></li><li data-location="3"><a href="#java-rmi-approach">Java RMI approach</a><ol><li data-location="3.1"><a href="#architecture">Architecture</a></li><li data-location="3.2"><a href="#leader-election-and-fault-recovery">Leader election and Fault recovery</a></li><li data-location="3.3"><a href="#consistency-and-ordering">Consistency and ordering</a></li></ol></li><li data-location="4"><a href="#cap-theorem-comparison">CAP theorem comparison</a></li></ol></nav><p></p><div class="page-break" data-hidden=""></div><h1 id="problem-analysis" data-location="1">Problem analysis</h1><p>The objective of this project is to transform a centralized, single user pixel art application into a distributed, collaborative system where multiple users can simultaneously view and modify a shared pixel grid. The baseline application provides the basic architecture, including a PixelGrid data structure, eventdriven user interactions through listener interfaces (pattern Observer), and a graphical interface with brush management.</p><h2 id="state-consistency-and-determinism" data-location="1.1">State consistency and determinism</h2><p>The fundamental challenge lies in maintaining a deterministic shared state across all distributed clients. In the centralized version, state mutations occur directly through the PixelGrid.set() method when a user clicks on a cell. In the distributed context, this approach is insufficient as concurrent modifications from multiple users could lead to inconsistent states. The solution must adopt an eventdriven architecture where state changes are triggered exclusively by messages and events processed locally, ensuring that each client&rsquo;s state transitions follow a predictable, reproducible sequence.</p><h2 id="message-ordering" data-location="1.2">Message ordering</h2><p>Preserving the causal ordering of events is critical for consistency guarantees. The specification mandates that if two events ev1 and ev2 occur such that ev1 → ev2 for one user, this ordering must be maintained for all users. Without proper message ordering mechanisms, scenarios such as a user changing their brush color before painting a pixel could result in other users observing the pixel painted with the wrong color. This requires implementing either logical clocks or leveraging ordering guarantees provided by the chosen middleware technology.</p><h2 id="dynamic-peer-discovery" data-location="1.3">Dynamic peer discovery</h2><p>The system must support dynamic P2P membership, allowing users to join by contacting any existing participant. The architecture must handle peer discovery, state synchronization for newly joined users, and graceful handling of user departures without disrupting ongoing collaboration.</p><h2 id="cursor-awareness" data-location="1.4">Cursor awareness</h2><p>Beyond grid modifications, the system must propagate cursor positions to provide awareness of where other users are pointing. The baseline application already includes <span class="codespan-content"><code>MouseMovedListener</code></span> and <span class="codespan-content"><code>BrushManager</code></span> components that track and visualize multiple brushes. These must be extended to broadcast cursor movements across the network while managing the performance implications of high frequency position updates.</p><div class="page-break" data-hidden=""></div><h1 id="mom-approach" data-location="2">MOM approach</h1><p>The MOM implementation uses RabbitMQ as the message broker to enable distributed collaboration through a publish-subscribe pattern. This approach decouples clients from direct P2P communication, centralizing message routing through the broker while maintaining an eventdriven architecture where all state changes originate from received messages.</p><h2 id="architecture" data-location="2.1">Architecture</h2><h3 id="broadcast-communication-with-fanout-exchange" data-location="2.1.1">Broadcast communication with fanout exchange</h3><p>The system uses a RabbitMQ fanout exchange named pixel_art to broadcast all events to every connected client. Each client establishes a connection to the broker on localhost, declares the fanout exchange, and binds an exclusive queue to receive all broadcast messages. This architecture ensures that every action performed by one client is disseminated to all other participants without requiring explicit knowledge of peer addresses.</p><h3 id="client-identity-and-message-protocol" data-location="2.1.2">Client identity and message protocol</h3><p>Each client generates a unique UUID upon initialization (CLIENT_ID) to distinguish its own messages from those of other participants. Messages follow a simple pipedelimited format: type|senderId|x|y|color, where the type field indicates the event category. This lightweight protocol supports five core event types:</p><ul><li><strong>join</strong>: Announces a new client&rsquo;s entry with initial brush position and color</li><li><strong>leave</strong>: Signals graceful disconnection via a shutdown hook</li><li><strong>move</strong>: Propagates cursor position updates for awareness visualization</li><li><strong>draw</strong>: Broadcasts pixel modifications with coordinates and color</li><li><strong>colorChange</strong>: Notifies peers of brush color updates</li></ul><div class="page-break" data-hidden=""></div><h2 id="state-management" data-location="2.2">State management</h2><h3 id="state-updates" data-location="2.2.1">State updates</h3><p>The implementation strictly adheres to the principle of deterministic state changes through message processing. Local user interactions trigger both immediate local state updates and message broadcasts, ensuring the initiating client sees changes without network latency. When the <span class="codespan-content"><code>handleIncomingMessage</code></span> method processes incoming events, it filters out the client&rsquo;s own messages using the senderId comparison, preventing echo effects.</p><h3 id="grid-serialization-for-late-joiners" data-location="2.2.2">Grid serialization for late joiners</h3><p>To synchronize newly joined clients, the system implements a state transfer mechanism using JSON serialization. When a client receives a join message, it serializes its current PixelGrid state using Jackson&rsquo;s ObjectMapper and broadcasts a grid_status message containing the complete grid array. This allows late joiners to reconstruct the shared canvas state rather than starting from an empty grid. The PixelGrid class provides <span class="codespan-content"><code>serializedGrid()</code></span> and <span class="codespan-content"><code>setGrid()</code></span> methods specifically for this purpose.</p><h3 id="brush-management-and-cursor-awareness" data-location="2.2.3">Brush management and Cursor awareness</h3><p>The BrushManager was refactored from a listbased structure to a <span class="codespan-content"><code>Map&lt;String, Brush&gt;</code></span> to associate each remote cursor with its client ID. When move events arrive, the system checks whether a brush already exists for that sender and either updates its position or creates a new brush entry. This design gracefully handles scenarios where cursor movements arrive before join messages, dynamically registering unknown participants.</p><h2 id="consistency-and-ordering" data-location="2.3">Consistency and ordering</h2><h3 id="message-ordering" data-location="2.3.1">Message ordering</h3><p>RabbitMQ provides FIFO ordering guarantees for messages published to the same queue from a single connection. Since all clients publish to the fanout exchange and consume from their exclusive queues, messages from any single sender maintain causal order for all receivers. However, this implementation does not implement logical timestamps, meaning that concurrent events from different clients may be observed in different orders by different recipients, a tradeoff accepted in favor of simplicity.</p><h3 id="disaster-recovery-limitations" data-location="2.3.2">Disaster recovery limitations</h3><p>The current implementation lacks persistence mechanisms. If all clients disconnect, the shared pixel art state is lost. Additionally, there is no brokerside message persistence configured, so broker failures would result in message loss. The shutdown hook attempts graceful disconnection by sending leave messages, but unexpected client termination results in abandoned brush cursors remaining visible.</p><div class="page-break" data-hidden=""></div><figure><pre class="mermaid fill-height">flowchart TB
+  subgraph &quot; &quot;
+      Start([Application Start])
+  end
+  
+  Start --&gt; Init
+  
+  subgraph Setup[&quot;INITIALIZATION&quot;]
+      direction TB
+      Init[Connect to RabbitMQ&lt;br/&gt;localhost]
+      Exchange[Declare Fanout Exchange&lt;br/&gt;&#39;pixel_art&#39;]
+      Queue[Create Exclusive Queue]
+      Bind[Bind Queue to Exchange]
+      Consumer[Setup Message Consumer]
+      
+      Init --&gt; Exchange --&gt; Queue --&gt; Bind --&gt; Consumer
+  end
+  
+  Consumer --&gt; Ready
+  
+  subgraph Runtime[&quot;RUNTIME OPERATIONS&quot;]
+      direction TB
+      Ready([Ready State])
+      UI[User Interaction&lt;br/&gt;Mouse/Click/Color]
+      Local[Update Local State&lt;br/&gt;Grid/Brush]
+      Publish[Publish Message&lt;br/&gt;to Exchange]
+      
+      Ready --&gt; UI --&gt; Local --&gt; Publish
+  end
+  
+  subgraph Broker[&quot;RABBITMQ BROKER&quot;]
+      direction TB
+      Receive[Receive Message&lt;br/&gt;at Exchange]
+      Broadcast[Broadcast to All&lt;br/&gt;Bound Queues]
+      
+      Receive --&gt; Broadcast
+  end
+  
+  subgraph Processing[&quot;MESSAGE PROCESSING&quot;]
+      direction TB
+      Consume[Consume from Queue]
+      Filter{Is from&lt;br/&gt;self?}
+      Handle[handleIncomingMessage&lt;br/&gt;Update Grid/Brushes]
+      Refresh[Refresh View]
+      
+      Consume --&gt; Filter
+      Filter --&gt;|No| Handle --&gt; Refresh
+      Filter --&gt;|Yes| Skip[Ignore]
+  end
+  
+  Publish --&gt; Receive
+  Broadcast --&gt; Consume
+  Refresh --&gt; UI
+  Skip --&gt; UI</pre></figure><div class="page-break" data-hidden=""></div><h1 id="java-rmi-approach" data-location="3">Java RMI approach</h1><p>Unlike the MOM approach&rsquo;s brokercentric structure, this solution designates one peer as the coordination leader while maintaining P2P capabilities through RMI registry discovery.</p><h2 id="architecture" data-location="3.1">Architecture</h2><h3 id="leader" data-location="3.1.1">Leader</h3><p>The system employs a centralized coordination model where the first client to start becomes the leader (peer ID 0) and instantiates a <span class="codespan-content"><code>RemoteServiceImpl</code></span> object bound to the RMI registry as <em>&ldquo;rsObj&rdquo;</em>. Subsequent clients attempt to lookup this remote service reference; if found, they join as followers by invoking the join() method, which registers their callback listener and assigns them a unique integer peer ID. This architecture centralizes event sequencing at the leader while distributing event processing and state visualization across all peers.</p><h3 id="remote-callbacks" data-location="3.1.2">Remote callbacks</h3><p>The design implements the Observer pattern through RMI callbacks. Each follower exports a <span class="codespan-content"><code>RemoteServiceListener</code></span> stub that the leader stores in a <span class="codespan-content"><code>ConcurrentHashMap&lt;Integer, RemoteServiceListener&gt;</code></span>. When the leader&rsquo;s <span class="codespan-content"><code>handleEvent()</code></span> method processes an event, it invokes methods like <span class="codespan-content"><code>notifyBrushMoved()</code></span>, <span class="codespan-content"><code>notifyPixelDrawn()</code></span>, or <span class="codespan-content"><code>notifyBrushColorChanged()</code></span> on each registered listener. The leader itself also implements a <span class="codespan-content"><code>RemoteEventHandler</code></span> to update its own local state through the <span class="codespan-content"><code>informLeader()</code></span> method, ensuring consistency between its coordinator role and participant role.</p><h3 id="event-management" data-location="3.1.3">Event management</h3><p>Events are encapsulated in <span class="codespan-content"><code>RemoteEvent</code></span> objects containing an <span class="codespan-content"><code>EventType</code></span> enumeration and a <span class="codespan-content"><code>BrushDTO</code></span> data transfer object. The <span class="codespan-content"><code>BrushDTO</code></span> class implements Serializable and carries peer identity, position coordinates, and color information, all immutable fields to prevent remote state corruption. The <span class="codespan-content"><code>EventType</code></span> enum defines five event categories matching the MOM implementation: ADD, MOVE, DRAW, COLOR_CHANGE, and LEAVE.</p><figure><pre class="mermaid fill-height">flowchart LR
+  subgraph Leader[&quot;LEADER PEER&quot;]
+      L1[User Input]
+      L2[RemoteService&lt;br/&gt;]
+      L3[Local State]
+  end
+  
+  subgraph Peer1[&quot;PEER 1&quot;]
+      F1[User Input]
+      F2[RemoteServiceListener&lt;br/&gt;Callback]
+      F3[Local State]
+  end
+  
+  subgraph Peer2[&quot;PEER 2&quot;]
+      F4[User Input]
+      F5[RemoteServiceListener&lt;br/&gt;Callback]
+      F6[Local State]
+  end
+  
+  L1 --&gt;|Event| L2
+  L2 --&gt;|Update| L3
+  L2 --&gt;|Broadcast| F2
+  L2 --&gt;|Broadcast| F5
+  
+  F1 --&gt;|Event| L2
+  F2 --&gt;|Update| F3
+  
+  F4 --&gt;|Event| L2
+  F5 --&gt;|Update| F6</pre></figure><h2 id="leader-election-and-fault-recovery" data-location="3.2">Leader election and Fault recovery</h2><h3 id="leader-election-algorithm" data-location="3.2.1">Leader election algorithm</h3><p>The leader election mechanism is inspired by the Chang-Roberts algorithm, adapted for the RMI context
+The election algorithm gets triggered when the leader peer ID appears in a LEAVE event. The leaderLeft() method searches backward from the highest assigned peer ID to find the next eligible leader still present in the listenersMap. Once identified, the current leader broadcasts a notifyNextLeader() callback containing the new leader ID and a snapshot of the listener map.</p><h3 id="leader-transition-handling" data-location="3.2.2">Leader transition handling</h3><p>When followers receive the <span class="codespan-content"><code>onNextLeaderElection()</code></span> callback, each checks whether its own peer ID matches the designated leader ID. The chosen successor instantiates a new RemoteServiceImpl, rebinds it to the registry under both <em>&ldquo;rsObj&rdquo;</em> and <em>&ldquo;rsObj&rdquo; + leaderId</em>, and assumes coordination responsibilities. Nonelected peers spawn a background thread to repeatedly attempt reconnection to the new leader&rsquo;s registry entry until successful.</p><h2 id="consistency-and-ordering" data-location="3.3">Consistency and ordering</h2><h3 id="total-ordering-through-leader-process-queue" data-location="3.3.1">Total ordering through leader process queue</h3><p>All events flow through the leader <span class="codespan-content"><code>processQueue()</code></span> method marked synchronized, establishing a total order. This guarantees that if one peer observes event A before event B, all other peers will observe the same ordering. The tradeoff is that the leader becomes a single point of failure.</p><h3 id="remote-exception-handling" data-location="3.3.2">Remote exception handling</h3><p>The implementation uses synchronized blocks on callback methods and brush updates to prevent interleaving. However, RemoteException instances during broadcasts are caught and logged without retries, accepting potential message loss in exchange for system availability. The leaderAvailable flag prevents clients from dispatching events during leader transitions.</p><div class="page-break" data-hidden=""></div><figure><pre class="mermaid fill-height">stateDiagram
+  [*] --&gt; CheckLeader: Application Start
+  
+  state &quot;Determine Role&quot; as CheckLeader
+  CheckLeader --&gt; LeaderInit: Registry lookup fails
+  CheckLeader --&gt; PeerInit: Registry lookup succeeds
+  
+  state &quot;Leader Path&quot; as LeaderInit {
+      [*] --&gt; CreateRemoteService
+      CreateRemoteService --&gt; BindToRegistry
+      BindToRegistry --&gt; ExportListener
+  }
+  
+  state &quot;Peer Path&quot; as PeerInit {
+      [*] --&gt; LookupRemoteService
+      LookupRemoteService --&gt; RegisterWithLeader
+      RegisterWithLeader --&gt; GetGridState
+      GetGridState --&gt; ExportListener2
+  }
+  
+  LeaderInit --&gt; Ready
+  PeerInit --&gt; Ready
+  
+  state &quot;Active Collaboration&quot; as Ready {
+      [*] --&gt; UserInteraction
+      UserInteraction --&gt; CreateEvent
+      CreateEvent --&gt; SendToLeader
+      SendToLeader --&gt; LeaderProcessing
+      
+      state &quot;Leader Processing&quot; as LeaderProcessing {
+          [*] --&gt; QueueEvent
+          QueueEvent --&gt; UpdateLeaderState
+          UpdateLeaderState --&gt; BroadcastToPeers
+      }
+      
+      LeaderProcessing --&gt; PeerCallback
+      
+      state &quot;Peer Update&quot; as PeerCallback {
+          [*] --&gt; ReceiveCallback
+          ReceiveCallback --&gt; UpdateLocalGrid
+          UpdateLocalGrid --&gt; UpdateBrushes
+          UpdateBrushes --&gt; RefreshView
+      }
+      
+      PeerCallback --&gt; UserInteraction
+  }
+  
+  Ready --&gt; [*]: Shutdown</pre></figure><div class="page-break" data-hidden=""></div><h1 id="cap-theorem-comparison" data-location="4">CAP theorem comparison</h1><p>The <strong>MOM solution</strong> is an AP system (availability + partition tolerance), prioritizing system responsiveness over strict consistency. Clients can publish events asynchronously even during network issues, but concurrent operations may be observed in different orders by different users, resulting in eventual consistency. The fanout exchange broadcasts messages without global coordination, allowing temporary state divergence that converges over time.</p><p>The <strong>RMI solution</strong> is a CP system (consistency + partition tolerance), enforcing strong consistency through the leader&rsquo;s event queue. All events are totally ordered, every client observes identical state transitions in the same sequence. However, the leader is a single point of failure: if it becomes unreachable, the entire system halts, sacrificing availability to maintain consistency.</p><p>For collaborative pixel art, the MOM approach is more suitable since users can tolerate temporary inconsistencies in exchange for continuous responsiveness.</p>
+</body>
+</html>
