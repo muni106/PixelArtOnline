@@ -1,70 +1,84 @@
-PCD a.y. 2024-2025 - ISI LM UNIBO - Cesena Campus
+# Collaborative Pixel Art 
 
-# Single Assignment 
-
-v1.0.0-20250606
+A multi-user drawing application where people can paint on a shared canvas together in real-time. Everyone sees everyone else's cursor, color choices, and pixel changes as they happen.
 
 
-L’assignment unico è articolato in due parti:
-- Prima Parte - Programmazione concorrente
-- Seconda Parte - Programmazione distribuita
+## What This Project Does
+Think of Google Docs, but for pixel art. Multiple users connect to the same canvas and can:
 
-### PRIMA PARTE - programmazione concorrente
+- Draw pixels with their chosen colors
+- See other users' cursors moving around
+- Watch pixels appear as others draw them
+- Join ongoing sessions and see the current artwork
+- Change brush colors and see others do the same
 
-- Realizzare un programma concorrente che, dato l'indirizzo di una directory D e una parola P,    fornisca il numero di file PDF presenti in D (o in una qualsiasi sottodirectory, ricorsivamente)  che contengono P. D e P sono parametri del programma, passati da linea di comando. Il programma non necessita di una GUI.
+The project started as a single user pixel art app and evolved into a distributed system with two different networking approaches.
 
-  Per l’elaborazione di file PDF nel repo del corso si usa la libreria PDFBox, con semplice esempio di utilizzo (``pcd.ass_single.part1.example.ExtractTextSimple``) in cui dato un documento PDF caricato da file se ne ottiene il testo corrispondente (come stringa).
+## The challenge
 
-- Estendere il programma al punto precedente includendo una GUI con:
-  - Input box per specificare i parametri  
-  - pulsanti start/stop/suspend/resume per avviare/fermare/sospendere/riprendere l'elaborazione
-  - output box dove sia visualizzato man mano il numero di file analizzati (in totale) fino a quel momento, il numero di file PDF trovati e il numero di file PDF contenenti la parola P. 
+When multiple people edit the same canvas simultaneously, problems arise:
+- State synchronization: How does everyone see the same picture?
+- Event ordering: If someone changes their brush color, then draws, everyone needs to see those events in the right order
+- New joiners: How do latecomers get the current canvas state?
+- Performance: Sending cursor positions constantly could overload the network
 
+## Two different approches
 
-Si chiede di sviluppare i due punti considerando in ordine sei approcci distinti, visti nel corso:
+This project implements the same collaborative canvas using two completely different networking technologies, each with different tradeoffs.
 
-- **Soluzione basata su approccio a thread**
-  - La soluzione in questo caso deve basarsi unicamente su un approccio basato su programmazione multithreaded, adottando, da un lato, principi e metodi di progettazione utili per favorire modularità, incapsulamento e proprietà relative, dall’altro una soluzione che massimizzi le performance e reattività. 
-  - Come meccanismi di coordinazione prediligere la definizione e uso di monitor  rispetto ad altre soluzioni di più basso livello.
-  - Non è consentito l’uso di librerie e classi esterne relative alla gestione degli aspetti di concorrenza: in particolare, relativamente alla libreria java.util.concurrent, è possibile utilizzare (eventualmente) solo le classi utili all’implementazione di monitor. 
-- **Soluzione basata su approccio a virtual threads** 
-  - La soluzione in questo caso deve sfruttare i virtual thread (in Java)
-- **Soluzione basata su approccio a task**    
-  - La soluzione in questo caso deve sfruttare un approccio a task, usando come framework di riferimento, gli Executor in Java. 
-- **Soluzione basata su programmazione asincrona ad eventi**
-  - La soluzione in questo caso deve basarsi su programmazione asincrona ad eventi, basata su architettura di controllo ad event loop, usando un qualsiasi framework a supporto che implementi l'approccio.  Esempio di riferimento visto nel corso: Vert.x, in Java o nel linguaggio che si preferisce. E' possibile usare framework alternativi (es. Node.js in Javascript).  
-- **Soluzione basata su programmazione reattiva**
-  - La soluzione in questo caso deve basarsi sulla programmazione reattiva, sfruttando il framework Rx (RxJava se si usa Java come linguaggio di riferimento, non obbligatorio). 
-- **Soluzione basata su attori** 
-  - La soluzione in questo caso deve basarsi unicamente su un approccio ad attori, usando il framework Akka
+### Approach 1: RabbitMQ (Message Broker)
 
-### SECONDA PARTE - programmazione distribuita
+How it works: Think of a central post office that delivers copies of every message to everyone.
+- Every user connects to a RabbitMQ server (the "broker")
+- When someone draws a pixel, they send a message to the broker
+- The broker makes copies and sends them to all other users
+- Each user processes incoming messages and updates their local canvas
+- message types:
+  - join - "Hi, I'm here!"
+  - move - "My cursor is at position X,Y"
+  - draw - "I painted pixel X,Y with color C"
+  - colorChange - "I switched to color C"
+  - leave - "I'm leaving"
 
-Si vuole realizzare il prototipo di un'applicazione distribuita di "Cooperative Pixel Art" (presente nel repo, in versione concentrata). L'applicazione deve permettere a più utenti di condividere, visualizzare e modificare collaborativamente una griglia che rappresenta un'immagine in pixel.    Nel repo è disponibile un esempio (parziale) di versione centralizzata, a singolo utente (``pcd.ass_single.part2.example.PixelArtMain``).
+Pros: Simple, always responsive, no single point of control
+Cons: If everyone disconnects, the artwork is lost; concurrent actions might appear in slightly different orders to different users
 
-In particolare:
-- ogni utente può modificare l'immagine selezionando ("colorando") mediante il puntatore del mouse gli elementi della griglia (come mostrato nell'esempio fornito)
-- le variazioni apportate da un utente devono essere opportunamente visualizzate anche dagli altri utenti, in  modo che tutti gli utenti vedano sempre il medesimo stato della griglia, in modo consistente.   In particolare:
-  - se un utente visualizza la griglia allo stato s, ogni altro utente deve aver visualizzato o visualizzare lo stato s
-  - se ev1 e ev2 sono due eventi che concernono la griglia per cui ev1 →  ev2  per un utente ui, allora ev1 →  ev2  per ogni altro utente uj
-- gli utenti devono potersi aggiungere (e uscire)  dinamicamente, contattando uno qualsiasi degli utenti che già partecipano all'applicazione, in modo peer-to-peer. Nel caso si adotti un approccio basato su MOM, è possibile considerare – come punto di contatto – il nodo dove c'è il broker (o uno dei nodi dove c'è il broker, nel caso si considerino MOM che supportano forme di clustering/federazione)
-- ogni utente deve poter percepire dove si trova il puntatore del mouse di tutti gli altri utenti che stanno collaborando
+### Approach 2: Java RMI (Leader Coordination)
+How it works: One user becomes the "leader" who coordinates everything; others register as followers.
+- First person to start becomes the leader
+- Everyone else connects to the leader and registers a "callback" (like giving the leader your phone number)
+- When anyone does something, they tell the leader
+- The leader updates their own canvas, then calls everyone's callbacks to notify them
+- If the leader leaves, the remaining users elect a new leader
 
-Si richiede di sviluppare due soluzioni:
-- una soluzione utilizzando un approccio basato su scambio di messaggi, attori distribuiti oppure MOM. 
-- una soluzione utilizzando un approccio basato su Java RMI come esempio di tecnologia che supporta Distributed Object Computing.
+### Which Approach Is Better?
+It depends on your priorities:
 
-### DETTAGLI SULLA CONSEGNA
+- RabbitMQ (AP system): Prioritizes availability and responsiveness. Users can keep drawing even if network issues occur, but might temporarily see slightly different states that eventually converge.
+- Java RMI (CP system): Prioritizes consistency. Everyone always sees identical states, but the system depends on the leader being available.
+For casual collaborative art, RabbitMQ's approach is usually better, users prefer continuous responsiveness over perfect consistency, imo.
 
-La consegna consiste in una directory ``Single-Assignment-Single`` compressa (formato zip) contenente due sotto-directory (``part1``, ``part2``), una per ogni parte. Ogni sottodirectory deve essere strutturata come segue:
-- directory src con i sorgenti del programma
-- directory doc che contenga una sintetica relazione in PDF (report.pdf)
+## Running the project
 
-La relazione deve includere:
-- Analisi del problema, focalizzando in particolare gli aspetti relativi alla concorrenza
-- Descrizione della strategia risolutiva e dell’architettura proposta, sempre focalizzando l’attenzione su aspetti relativi alla concorrenza.
-  - da notare che - nella prima parte - la strategia risolutiva e architettura potrebbero variare a seconda dell'approccio utilizzato  
-- (Quando ritenuto utile) La descrizione del comportamento del sistema o di sottoparti utilizzando Reti di Petri. 
-- Prove di performance e considerazioni relative.
-- Per la prima parte - in merito al punto 1) in particolare (soluzione a thread) - l'identificazione di proprietà di correttezza e verifica in JPF.
+### RabbitMQ 
 
+1. Install and start RabbitMQ locally (for a lightweight setup)
+```bash
+docker run -it --rm --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:4-management
+```
+2. Run the application it connects to localhost automatically
+```bash
+mvn exec:java -Dexec.mainClass="pcd.ass_single.part2.mom.PixelArtMain" 
+```
+3. Launch multiple instances to collaborate
+
+### Java RMI v
+1. Start the rmi registry
+```bash
+rmiregistry
+```
+2. Launch the first instance (becomes leader)
+```bash
+mvn exec:java -Dexec.mainClass="pcd.ass_single.part2.rmi.PixelArtMain" 
+```
+3. Launch addition instances (become a normal peer)
